@@ -4,7 +4,7 @@ const DRIVE_FOLDER_ID = "13Wdf68VbudCZyRa4S5xaUfOxfjElgA5C";
 
 function doPost(e) {
   try {
-    const payload = JSON.parse((e && e.postData && e.postData.contents) ? e.postData.contents : "{}");
+    const payload = readPayload_(e);
 
     const studentName = safeText_(payload?.student?.name);
     const studentClass = safeText_(payload?.student?.class);
@@ -50,6 +50,28 @@ function doPost(e) {
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message ? err.message : err) });
   }
+}
+
+function readPayload_(e) {
+  const raw = (e && e.postData && e.postData.contents) ? String(e.postData.contents) : "";
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch (_) {
+    }
+  }
+
+  const wrapped = e && e.parameter && e.parameter.payload ? String(e.parameter.payload) : "";
+  if (wrapped) {
+    try {
+      const parsed = JSON.parse(wrapped);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch (_) {
+    }
+  }
+
+  return {};
 }
 
 function ensureSheet_() {

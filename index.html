@@ -398,10 +398,13 @@
       };
 
       setStatus("Mengirim jawaban ke server...");
+      const body = new URLSearchParams();
+      body.set("payload", JSON.stringify(payload));
+
       const res = await fetch(APPS_SCRIPT_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+        body: body.toString()
       });
 
       const text = await res.text();
