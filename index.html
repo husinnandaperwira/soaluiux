@@ -14,6 +14,9 @@
     button { cursor: pointer; }
     .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
     .card { border: 1px solid #e5e5e5; border-radius: 14px; padding: 14px; margin: 12px 0; }
+    .section-title { font-weight: 750; font-size: 18px; margin-bottom: 8px; }
+    .section-line { margin: 6px 0; }
+    .q-block { margin-top: 12px; padding-top: 12px; border-top: 1px solid #eee; }
     .q-title { font-weight: 650; margin-bottom: 8px; }
     .muted { color: #666; font-size: 13px; }
     .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; background: #f3f3f3; font-size: 12px; }
@@ -80,23 +83,70 @@
       return /^[\s._\-⋯…]+$/.test(t);
     }
 
+    function isSectionHeader(line) {
+      return /^[A-D]\.\s+/.test((line || "").trim());
+    }
+
+    function nextNonEmptyIndex(lines, start) {
+      for (let i = start; i < lines.length; i++) {
+        if ((lines[i] || "").trim()) return i;
+      }
+      return -1;
+    }
+
     function parseLKPD(text) {
       const lines = (text || "").replace(/\r\n/g, "\n").split("\n");
       const titleLine = (lines.find(l => l.trim()) || "").trim();
       const title = titleLine || "LKPD";
 
-      const qs = [];
-      for (let i = 0; i < lines.length - 1; i++) {
-        const cur = (lines[i] || "").trim();
-        const nxt = (lines[i + 1] || "");
-        if (!cur) continue;
-        if (!placeholderLike(nxt)) continue;
+      const sections = [];
+      let current = null;
+      let qCounter = 0;
 
-        const qText = cur.replace(/\s+/g, " ").trim();
-        qs.push({ id: `q${qs.length + 1}`, text: qText, kind: "text" });
+      for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i] || "";
+        const t = raw.trim();
+
+        if (!t) {
+          if (current) current.content.push("");
+          continue;
+        }
+
+        if (isSectionHeader(t)) {
+          current = { id: t[0], title: t, content: [], questions: [], tasks: {} };
+          sections.push(current);
+          continue;
+        }
+
+        if (!current) continue;
+
+        if (current.id === "D") {
+          if (/^Cari 1 elemen UI\b/i.test(t)) {
+            current.tasks.uiPrompt = t;
+            continue;
+          }
+          if (/^Cari 1 elemen UX\b/i.test(t)) {
+            current.tasks.uxPrompt = t;
+            continue;
+          }
+        }
+
+        const nextIdx = nextNonEmptyIndex(lines, i + 1);
+        const nextLine = nextIdx >= 0 ? (lines[nextIdx] || "") : "";
+
+        if (nextIdx >= 0 && placeholderLike(nextLine)) {
+          qCounter++;
+          current.questions.push({ id: `q${qCounter}`, text: t });
+          i = nextIdx;
+          continue;
+        }
+
+        if (placeholderLike(t)) continue;
+
+        current.content.push(t);
       }
 
-      return { title, questions: qs };
+      return { title, sections, questionCount: qCounter };
     }
 
     function render() {
@@ -104,67 +154,97 @@
       root.innerHTML = "";
       if (!lkpd) return;
 
-      if (!lkpd.questions.length) {
-        root.innerHTML = `<div class="card"><div class="q-title">Pertanyaan tidak terdeteksi</div><div class="muted">Pastikan baris pertanyaan diikuti baris titik-titik (……) sebagai kolom jawaban.</div></div>`;
+      if (!lkpd.sections.length) {
+        root.innerHTML = `<div class="card"><div class="q-title">LKPD tidak terdeteksi</div><div class="muted">Pastikan format memiliki section A–D dan baris titik-titik (……) sebagai kolom jawaban.</div></div>`;
         return;
       }
 
-      for (const q of lkpd.questions) {
-        const card = document.createElement("div");
-        card.className = "card";
+      for (const section of lkpd.sections) {
+        const sec = document.createElement("div");
+        sec.className = "card";
 
-        const title = document.createElement("div");
-        title.className = "q-title";
-        title.textContent = q.text;
+        const h = document.createElement("div");
+        h.className = "section-title";
+        h.textContent = section.title;
+        sec.appendChild(h);
 
-        const ta = document.createElement("textarea");
-        ta.id = `ans_${q.id}`;
-        ta.placeholder = "Tulis jawaban di sini...";
+        for (const line of section.content) {
+          if (!line) {
+            const spacer = document.createElement("div");
+            spacer.style.height = "8px";
+            sec.appendChild(spacer);
+            continue;
+          }
+          const p = document.createElement("div");
+          p.className = "section-line";
+          p.textContent = line;
+          sec.appendChild(p);
+        }
 
-        card.appendChild(title);
-        card.appendChild(ta);
-        root.appendChild(card);
+        for (const q of section.questions) {
+          const block = document.createElement("div");
+          block.className = "q-block";
+
+          const title = document.createElement("div");
+          title.className = "q-title";
+          title.textContent = q.text;
+
+          const ta = document.createElement("textarea");
+          ta.id = `ans_${q.id}`;
+          ta.placeholder = "Tulis jawaban di sini...";
+
+          block.appendChild(title);
+          block.appendChild(ta);
+          sec.appendChild(block);
+        }
+
+        if (section.id === "D") {
+          const uiPrompt = section.tasks.uiPrompt || "Cari 1 elemen UI yang menurut Anda menarik dan intuitif. Ambil screenshot dan jelaskan alasannya.";
+          const uxPrompt = section.tasks.uxPrompt || "Cari 1 elemen UX yang menurut Anda membingungkan. Ambil screenshot dan jelaskan bagaimana seharusnya elemen tersebut diperbaiki.";
+
+          const tugas = document.createElement("div");
+          tugas.className = "q-block";
+          tugas.innerHTML = `
+            <div class="q-title"><span class="pill">Upload Screenshot</span></div>
+            <div class="two">
+              <div class="card" style="margin:0;">
+                <div class="q-title" style="font-weight:650;">${uiPrompt}</div>
+                <label style="min-width:auto;">
+                  Screenshot UI (jpg/png)
+                  <input id="uiShot" type="file" accept="image/*" />
+                </label>
+                <label style="min-width:auto;">
+                  Alasan (UI)
+                  <textarea id="uiReason" placeholder="Jelaskan alasannya..."></textarea>
+                </label>
+                <div id="uiInfo" class="muted"></div>
+              </div>
+
+              <div class="card" style="margin:0;">
+                <div class="q-title" style="font-weight:650;">${uxPrompt}</div>
+                <label style="min-width:auto;">
+                  Screenshot UX (jpg/png)
+                  <input id="uxShot" type="file" accept="image/*" />
+                </label>
+                <label style="min-width:auto;">
+                  Alasan/Perbaikan (UX)
+                  <textarea id="uxReason" placeholder="Jelaskan kebingungan dan perbaikannya..."></textarea>
+                </label>
+                <div id="uxInfo" class="muted"></div>
+              </div>
+            </div>
+            <div class="muted" style="margin-top:10px;">Disarankan screenshot ukuran kecil. Sistem akan mengecilkan otomatis sebelum dikirim.</div>
+          `;
+          sec.appendChild(tugas);
+
+          const uiShotEl = $("uiShot");
+          const uxShotEl = $("uxShot");
+          if (uiShotEl) uiShotEl.addEventListener("change", () => showFileInfo("uiShot", "uiInfo"));
+          if (uxShotEl) uxShotEl.addEventListener("change", () => showFileInfo("uxShot", "uxInfo"));
+        }
+
+        root.appendChild(sec);
       }
-
-      const tugas = document.createElement("div");
-      tugas.className = "card";
-      tugas.innerHTML = `
-        <div class="q-title">Tugas Mandiri: Analisis Aplikasi <span class="pill">Upload Screenshot</span></div>
-        <div class="two">
-          <div class="card" style="margin:0;">
-            <div class="q-title" style="font-weight:650;">Cari 1 elemen UI yang menurut Anda menarik dan intuitif. Ambil screenshot dan jelaskan alasannya.</div>
-            <label style="min-width:auto;">
-              Screenshot UI (jpg/png)
-              <input id="uiShot" type="file" accept="image/*" />
-            </label>
-            <label style="min-width:auto;">
-              Alasan (UI)
-              <textarea id="uiReason" placeholder="Jelaskan alasannya..."></textarea>
-            </label>
-            <div id="uiInfo" class="muted"></div>
-          </div>
-
-          <div class="card" style="margin:0;">
-            <div class="q-title" style="font-weight:650;">Cari 1 elemen UX yang menurut Anda membingungkan. Ambil screenshot dan jelaskan bagaimana seharusnya elemen tersebut diperbaiki.</div>
-            <label style="min-width:auto;">
-              Screenshot UX (jpg/png)
-              <input id="uxShot" type="file" accept="image/*" />
-            </label>
-            <label style="min-width:auto;">
-              Alasan/Perbaikan (UX)
-              <textarea id="uxReason" placeholder="Jelaskan kebingungan dan perbaikannya..."></textarea>
-            </label>
-            <div id="uxInfo" class="muted"></div>
-          </div>
-        </div>
-        <div class="muted" style="margin-top:10px;">
-          Disarankan screenshot ukuran kecil. Sistem akan mengecilkan otomatis sebelum dikirim.
-        </div>
-      `;
-      root.appendChild(tugas);
-
-      $("uiShot").addEventListener("change", () => showFileInfo("uiShot", "uiInfo"));
-      $("uxShot").addEventListener("change", () => showFileInfo("uxShot", "uxInfo"));
     }
 
     function showFileInfo(fileInputId, infoId) {
@@ -180,27 +260,34 @@
       if (!res.ok) throw new Error("Gagal memuat lkpd.ini");
       const text = await res.text();
       lkpd = parseLKPD(text);
-      $("meta").textContent = `LKPD: ${lkpd.title} • Pertanyaan terdeteksi: ${lkpd.questions.length}`;
+      $("meta").textContent = `LKPD: ${lkpd.title} • Section: ${lkpd.sections.length} • Pertanyaan: ${lkpd.questionCount}`;
       render();
       setStatus("LKPD siap.");
+    }
+
+    function forEachQuestion(fn) {
+      if (!lkpd) return;
+      for (const section of lkpd.sections) {
+        for (const q of section.questions) fn(q, section);
+      }
     }
 
     function readAnswers() {
       const out = {};
       if (!lkpd) return out;
-      for (const q of lkpd.questions) {
+      forEachQuestion((q) => {
         const el = $(`ans_${q.id}`);
         out[q.id] = el ? el.value : "";
-      }
+      });
       return out;
     }
 
     function writeAnswers(answers) {
       if (!lkpd) return;
-      for (const q of lkpd.questions) {
+      forEachQuestion((q) => {
         const el = $(`ans_${q.id}`);
         if (el) el.value = (answers && typeof answers[q.id] === "string") ? answers[q.id] : "";
-      }
+      });
     }
 
     async function fileToJpegBase64(file, maxSide = 1280, quality = 0.82) {
@@ -266,12 +353,18 @@
       const cls = norm($("studentClass").value);
       if (!name || !cls) throw new Error("Nama dan Kelas wajib diisi.");
 
-      const uiReason = $("uiReason").value.trim();
-      const uxReason = $("uxReason").value.trim();
+      const uiReasonEl = $("uiReason");
+      const uxReasonEl = $("uxReason");
+      const uiShotEl = $("uiShot");
+      const uxShotEl = $("uxShot");
+      if (!uiReasonEl || !uxReasonEl || !uiShotEl || !uxShotEl) throw new Error("Bagian upload screenshot belum termuat. Klik Load LKPD dulu.");
+
+      const uiReason = uiReasonEl.value.trim();
+      const uxReason = uxReasonEl.value.trim();
       if (!uiReason || !uxReason) throw new Error("Alasan UI dan Alasan/Perbaikan UX wajib diisi.");
 
-      const uiFile = $("uiShot").files && $("uiShot").files[0];
-      const uxFile = $("uxShot").files && $("uxShot").files[0];
+      const uiFile = uiShotEl.files && uiShotEl.files[0];
+      const uxFile = uxShotEl.files && uxShotEl.files[0];
       if (!uiFile || !uxFile) throw new Error("Screenshot UI dan Screenshot UX wajib diupload.");
 
       setStatus("Memproses screenshot...");
@@ -280,7 +373,7 @@
 
       const payload = {
         v: 1,
-        lkpd: { slug: LKPD_SLUG, title: lkpd.title, question_count: lkpd.questions.length },
+        lkpd: { slug: LKPD_SLUG, title: lkpd.title, question_count: lkpd.questionCount },
         student: { name, class: cls },
         answers: readAnswers(),
         tasks: {
