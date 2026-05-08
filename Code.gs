@@ -60,6 +60,15 @@ function readPayload_(e) {
       if (parsed && typeof parsed === "object") return parsed;
     } catch (_) {
     }
+
+    const formPayload = extractFormField_(raw, "payload");
+    if (formPayload) {
+      try {
+        const parsed = JSON.parse(formPayload);
+        if (parsed && typeof parsed === "object") return parsed;
+      } catch (_) {
+      }
+    }
   }
 
   const wrapped = e && e.parameter && e.parameter.payload ? String(e.parameter.payload) : "";
@@ -72,6 +81,24 @@ function readPayload_(e) {
   }
 
   return {};
+}
+
+function extractFormField_(raw, key) {
+  const pairs = String(raw).split("&");
+  for (let i = 0; i < pairs.length; i++) {
+    const part = pairs[i];
+    if (!part) continue;
+    const eq = part.indexOf("=");
+    const k = eq >= 0 ? part.slice(0, eq) : part;
+    if (k !== key) continue;
+    const v = eq >= 0 ? part.slice(eq + 1) : "";
+    try {
+      return decodeURIComponent(String(v).replace(/\+/g, " "));
+    } catch (_) {
+      return String(v);
+    }
+  }
+  return "";
 }
 
 function ensureSheet_() {

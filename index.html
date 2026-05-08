@@ -40,10 +40,7 @@
     </div>
 
     <div class="actions">
-      <button id="btnLoad" type="button">Load LKPD</button>
-      <button id="btnSaveLocal" type="button">Save Draft (Local)</button>
-      <button id="btnLoadLocal" type="button">Load Draft (Local)</button>
-      <button id="btnSubmit" type="button">Submit ke Guru</button>
+      <button id="btnSubmit" type="button">Submit</button>
       <button id="btnClear" type="button">Clear Form</button>
     </div>
 
@@ -274,6 +271,7 @@
       lkpd = parseLKPD(text);
       $("meta").textContent = `LKPD: ${lkpd.title} • Section: ${lkpd.sections.length} • Pertanyaan: ${lkpd.questionCount}`;
       render();
+      tryAutoLoadDraft();
       setStatus("LKPD siap.");
     }
 
@@ -360,6 +358,47 @@
       if ($("uxReason")) $("uxReason").value = (d.tasks && d.tasks.ux_reason) ? d.tasks.ux_reason : "";
     }
 
+    function hasAnyInput_() {
+      const tas = document.querySelectorAll("#questions textarea");
+      for (const ta of tas) {
+        if ((ta.value || "").trim()) return true;
+      }
+      return false;
+    }
+
+    function tryAutoLoadDraft() {
+      if (!lkpd) return;
+      const k = localKey();
+      if (!k) return;
+      const raw = localStorage.getItem(k);
+      if (!raw) return;
+      if (hasAnyInput_()) return;
+
+      let d;
+      try { d = JSON.parse(raw); } catch { return; }
+      applyDraft(d);
+      setStatus("Draft otomatis dimuat.");
+    }
+
+    function debounce_(fn, waitMs) {
+      let t = null;
+      return (...args) => {
+        if (t) clearTimeout(t);
+        t = setTimeout(() => fn(...args), waitMs);
+      };
+    }
+
+    const autoSaveDraft_ = debounce_(() => {
+      if (!lkpd) return;
+      const k = localKey();
+      if (!k) return;
+      localStorage.setItem(k, JSON.stringify(draftPayload()));
+    }, 600);
+
+    const autoLoadDraft_ = debounce_(() => {
+      tryAutoLoadDraft();
+    }, 200);
+
     async function submit() {
       if (!lkpd) await loadLKPD();
 
@@ -417,25 +456,21 @@
       if (k) localStorage.setItem(k, JSON.stringify(draftPayload()));
     }
 
-    $("btnLoad").addEventListener("click", () => loadLKPD().catch(e => setStatus(String(e.message || e))));
-    $("btnSaveLocal").addEventListener("click", () => {
-      const k = localKey();
-      if (!k) { setStatus("Isi Nama dan Kelas dulu untuk menyimpan draft."); return; }
-      localStorage.setItem(k, JSON.stringify(draftPayload()));
-      setStatus("Draft tersimpan di perangkat ini.");
-    });
-    $("btnLoadLocal").addEventListener("click", async () => {
-      if (!lkpd) await loadLKPD();
-      const k = localKey();
-      if (!k) { setStatus("Isi Nama dan Kelas dulu untuk load draft."); return; }
-      const raw = localStorage.getItem(k);
-      if (!raw) { setStatus("Draft tidak ditemukan di perangkat ini."); return; }
-      let d;
-      try { d = JSON.parse(raw); } catch { setStatus("Draft rusak/tidak valid."); return; }
-      applyDraft(d);
-      setStatus("Draft berhasil di-load.");
-    });
     $("btnSubmit").addEventListener("click", () => submit().catch(e => setStatus(String(e.message || e))));
+
+    const studentNameEl = $("studentName");
+    const studentClassEl = $("studentClass");
+    studentNameEl.addEventListener("input", () => { autoLoadDraft_(); autoSaveDraft_(); });
+    studentClassEl.addEventListener("input", () => { autoLoadDraft_(); autoSaveDraft_(); });
+    studentNameEl.addEventListener("blur", () => tryAutoLoadDraft());
+    studentClassEl.addEventListener("blur", () => tryAutoLoadDraft());
+
+    $("questions").addEventListener("input", (ev) => {
+      const t = ev && ev.target;
+      if (!t) return;
+      if (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && t.type === "text")) autoSaveDraft_();
+    });
+
     $("btnClear").addEventListener("click", async () => {
       if (!lkpd) await loadLKPD();
       writeAnswers({});
@@ -443,10 +478,12 @@
       if ($("uxReason")) $("uxReason").value = "";
       if ($("uiShot")) $("uiShot").value = "";
       if ($("uxShot")) $("uxShot").value = "";
+      const k = localKey();
+      if (k) localStorage.setItem(k, JSON.stringify(draftPayload()));
       setStatus("Form dibersihkan.");
     });
 
-    loadLKPD().catch(() => setStatus("Klik Load LKPD bila belum termuat."));
+    loadLKPD().catch(() => setStatus("LKPD gagal dimuat."));
   </script>
 </body>
 </html>
