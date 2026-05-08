@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LKPD Siswa</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 20px; line-height: 1.35; }
+    .top { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #eee; padding-bottom: 12px; margin-bottom: 14px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+    label { display: grid; gap: 6px; font-size: 14px; min-width: 220px; }
+    input, textarea, button { font: inherit; padding: 10px; border: 1px solid #ccc; border-radius: 10px; }
+    textarea { width: 100%; min-height: 92px; resize: vertical; }
+    button { cursor: pointer; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+    .card { border: 1px solid #e5e5e5; border-radius: 14px; padding: 14px; margin: 12px 0; }
+    .q-title { font-weight: 650; margin-bottom: 8px; }
+    .muted { color: #666; font-size: 13px; }
+    .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; background: #f3f3f3; font-size: 12px; }
+    .two { display: grid; gap: 10px; }
+    @media (min-width: 860px) { .two { grid-template-columns: 1fr 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <h1 style="margin:0 0 8px 0;">LKPD Siswa</h1>
+
+    <div class="row">
+      <label>
+        Nama
+        <input id="studentName" type="text" placeholder="Nama siswa" />
+      </label>
+      <label>
+        Kelas
+        <input id="studentClass" type="text" placeholder="Kelas" />
+      </label>
+    </div>
+
+    <div class="actions">
+      <button id="btnLoad" type="button">Load LKPD</button>
+      <button id="btnSaveLocal" type="button">Save Draft (Local)</button>
+      <button id="btnLoadLocal" type="button">Load Draft (Local)</button>
+      <button id="btnSubmit" type="button">Submit ke Guru</button>
+      <button id="btnClear" type="button">Clear Form</button>
+    </div>
+
+    <div id="status" class="muted" style="margin-top:8px;"></div>
+    <div id="meta" class="muted" style="margin-top:6px;"></div>
+  </div>
+
+  <div id="questions"></div>
+
+  <script>
+    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzUf7Qz1DXHsGRw6hUrrZFhyzdbzN5uhtF9L19quNEOriKlWD-4QbT4MFVsUN7jj0rr6A/exec";
+    const LKPD_URL = "./lkpd.ini";
+    const LKPD_SLUG = "dasar-ui-ux";
+
+    const $ = (id) => document.getElementById(id);
+
+    let lkpd = null;
+
+    function setStatus(msg) { $("status").textContent = msg || ""; }
+    function norm(s) { return (s || "").trim().replace(/\s+/g, " "); }
+    function sid() {
+      const name = norm($("studentName").value);
+      const cls = norm($("studentClass").value);
+      if (!name || !cls) return null;
+      return `${name}__${cls}`;
+    }
+    function localKey() {
+      const s = sid();
+      if (!s) return null;
+      return `lkpd_draft_v1__${encodeURIComponent(LKPD_SLUG)}__${encodeURIComponent(s)}`;
+    }
+
+    function placeholderLike(line) {
+      const t = (line || "").trim();
+      if (!t) return false;
+      if (t.includes("…")) return true;
+      return /^[\s._\-⋯…]+$/.test(t);
+    }
+
+    function parseLKPD(text) {
+      const lines = (text || "").replace(/\r\n/g, "\n").split("\n");
+      const titleLine = (lines.find(l => l.trim()) || "").trim();
+      const title = titleLine || "LKPD";
+
+      const qs = [];
+      for (let i = 0; i < lines.length - 1; i++) {
+        const cur = (lines[i] || "").trim();
+        const nxt = (lines[i + 1] || "");
+        if (!cur) continue;
+        if (!placeholderLike(nxt)) continue;
+
+        const qText = cur.replace(/\s+/g, " ").trim();
+        qs.push({ id: `q${qs.length + 1}`, text: qText, kind: "text" });
+      }
+
+      return { title, questions: qs };
+    }
+
+    function render() {
+      const root = $("questions");
+      root.innerHTML = "";
+      if (!lkpd) return;
+
+      if (!lkpd.questions.length) {
+        root.innerHTML = `<div class="card"><div class="q-title">Pertanyaan tidak terdeteksi</div><div class="muted">Pastikan baris pertanyaan diikuti baris titik-titik (……) sebagai kolom jawaban.</div></div>`;
+        return;
+      }
+
+      for (const q of lkpd.questions) {
+        const card = document.createElement("div");
+        card.className = "card";
+
+        const title = document.createElement("div");
+        title.className = "q-title";
+        title.textContent = q.text;
+
+        const ta = document.createElement("textarea");
+        ta.id = `ans_${q.id}`;
+        ta.placeholder = "Tulis jawaban di sini...";
+
+        card.appendChild(title);
+        card.appendChild(ta);
+        root.appendChild(card);
+      }
+
+      const tugas = document.createElement("div");
+      tugas.className = "card";
+      tugas.innerHTML = `
+        <div class="q-title">Tugas Mandiri: Analisis Aplikasi <span class="pill">Upload Screenshot</span></div>
+        <div class="two">
+          <div class="card" style="margin:0;">
+            <div class="q-title" style="font-weight:650;">Cari 1 elemen UI yang menurut Anda menarik dan intuitif. Ambil screenshot dan jelaskan alasannya.</div>
+            <label style="min-width:auto;">
+              Screenshot UI (jpg/png)
+              <input id="uiShot" type="file" accept="image/*" />
+            </label>
+            <label style="min-width:auto;">
+              Alasan (UI)
+              <textarea id="uiReason" placeholder="Jelaskan alasannya..."></textarea>
+            </label>
+            <div id="uiInfo" class="muted"></div>
+          </div>
+
+          <div class="card" style="margin:0;">
+            <div class="q-title" style="font-weight:650;">Cari 1 elemen UX yang menurut Anda membingungkan. Ambil screenshot dan jelaskan bagaimana seharusnya elemen tersebut diperbaiki.</div>
+            <label style="min-width:auto;">
+              Screenshot UX (jpg/png)
+              <input id="uxShot" type="file" accept="image/*" />
+            </label>
+            <label style="min-width:auto;">
+              Alasan/Perbaikan (UX)
+              <textarea id="uxReason" placeholder="Jelaskan kebingungan dan perbaikannya..."></textarea>
+            </label>
+            <div id="uxInfo" class="muted"></div>
+          </div>
+        </div>
+        <div class="muted" style="margin-top:10px;">
+          Disarankan screenshot ukuran kecil. Sistem akan mengecilkan otomatis sebelum dikirim.
+        </div>
+      `;
+      root.appendChild(tugas);
+
+      $("uiShot").addEventListener("change", () => showFileInfo("uiShot", "uiInfo"));
+      $("uxShot").addEventListener("change", () => showFileInfo("uxShot", "uxInfo"));
+    }
+
+    function showFileInfo(fileInputId, infoId) {
+      const el = $(fileInputId);
+      const f = el.files && el.files[0];
+      if (!f) { $(infoId).textContent = ""; return; }
+      $(infoId).textContent = `${f.name} • ${(f.size / 1024).toFixed(0)} KB`;
+    }
+
+    async function loadLKPD() {
+      setStatus("Memuat LKPD...");
+      const res = await fetch(LKPD_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error("Gagal memuat lkpd.ini");
+      const text = await res.text();
+      lkpd = parseLKPD(text);
+      $("meta").textContent = `LKPD: ${lkpd.title} • Pertanyaan terdeteksi: ${lkpd.questions.length}`;
+      render();
+      setStatus("LKPD siap.");
+    }
+
+    function readAnswers() {
+      const out = {};
+      if (!lkpd) return out;
+      for (const q of lkpd.questions) {
+        const el = $(`ans_${q.id}`);
+        out[q.id] = el ? el.value : "";
+      }
+      return out;
+    }
+
+    function writeAnswers(answers) {
+      if (!lkpd) return;
+      for (const q of lkpd.questions) {
+        const el = $(`ans_${q.id}`);
+        if (el) el.value = (answers && typeof answers[q.id] === "string") ? answers[q.id] : "";
+      }
+    }
+
+    async function fileToJpegBase64(file, maxSide = 1280, quality = 0.82) {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result || ""));
+        r.onerror = () => reject(new Error("Gagal membaca file"));
+        r.readAsDataURL(file);
+      });
+
+      const img = await new Promise((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = () => reject(new Error("Gagal memuat gambar"));
+        i.src = dataUrl;
+      });
+
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      const scale = Math.min(1, maxSide / Math.max(w, h));
+      const nw = Math.max(1, Math.round(w * scale));
+      const nh = Math.max(1, Math.round(h * scale));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = nw;
+      canvas.height = nh;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, nw, nh);
+
+      const jpegUrl = canvas.toDataURL("image/jpeg", quality);
+      const base64 = jpegUrl.split(",")[1] || "";
+      return { base64, mimeType: "image/jpeg", filename: (file.name || "screenshot").replace(/\.[^.]+$/, "") + ".jpg" };
+    }
+
+    function draftPayload() {
+      return {
+        v: 1,
+        lkpd: { slug: LKPD_SLUG, title: lkpd ? lkpd.title : "" },
+        student: { name: norm($("studentName").value), class: norm($("studentClass").value) },
+        answers: readAnswers(),
+        tasks: {
+          ui_reason: $("uiReason") ? $("uiReason").value : "",
+          ux_reason: $("uxReason") ? $("uxReason").value : ""
+        },
+        savedAt: new Date().toISOString()
+      };
+    }
+
+    function applyDraft(d) {
+      if (d && d.student) {
+        $("studentName").value = d.student.name || "";
+        $("studentClass").value = d.student.class || "";
+      }
+      if (d && d.answers) writeAnswers(d.answers);
+      if ($("uiReason")) $("uiReason").value = (d.tasks && d.tasks.ui_reason) ? d.tasks.ui_reason : "";
+      if ($("uxReason")) $("uxReason").value = (d.tasks && d.tasks.ux_reason) ? d.tasks.ux_reason : "";
+    }
+
+    async function submit() {
+      if (!lkpd) await loadLKPD();
+
+      const name = norm($("studentName").value);
+      const cls = norm($("studentClass").value);
+      if (!name || !cls) throw new Error("Nama dan Kelas wajib diisi.");
+
+      const uiReason = $("uiReason").value.trim();
+      const uxReason = $("uxReason").value.trim();
+      if (!uiReason || !uxReason) throw new Error("Alasan UI dan Alasan/Perbaikan UX wajib diisi.");
+
+      const uiFile = $("uiShot").files && $("uiShot").files[0];
+      const uxFile = $("uxShot").files && $("uxShot").files[0];
+      if (!uiFile || !uxFile) throw new Error("Screenshot UI dan Screenshot UX wajib diupload.");
+
+      setStatus("Memproses screenshot...");
+      const uiShot = await fileToJpegBase64(uiFile);
+      const uxShot = await fileToJpegBase64(uxFile);
+
+      const payload = {
+        v: 1,
+        lkpd: { slug: LKPD_SLUG, title: lkpd.title, question_count: lkpd.questions.length },
+        student: { name, class: cls },
+        answers: readAnswers(),
+        tasks: {
+          ui: { reason: uiReason, screenshot: uiShot },
+          ux: { reason: uxReason, screenshot: uxShot }
+        },
+        client: { userAgent: navigator.userAgent, submittedAt: new Date().toISOString() }
+      };
+
+      setStatus("Mengirim jawaban ke server...");
+      const res = await fetch(APPS_SCRIPT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { throw new Error("Respons server tidak valid."); }
+      if (!data.ok) throw new Error(data.error || "Submit gagal.");
+
+      setStatus(`Berhasil. Data tersimpan. Submission ID: ${data.submissionId || "-"}`);
+      const k = localKey();
+      if (k) localStorage.setItem(k, JSON.stringify(draftPayload()));
+    }
+
+    $("btnLoad").addEventListener("click", () => loadLKPD().catch(e => setStatus(String(e.message || e))));
+    $("btnSaveLocal").addEventListener("click", () => {
+      const k = localKey();
+      if (!k) { setStatus("Isi Nama dan Kelas dulu untuk menyimpan draft."); return; }
+      localStorage.setItem(k, JSON.stringify(draftPayload()));
+      setStatus("Draft tersimpan di perangkat ini.");
+    });
+    $("btnLoadLocal").addEventListener("click", async () => {
+      if (!lkpd) await loadLKPD();
+      const k = localKey();
+      if (!k) { setStatus("Isi Nama dan Kelas dulu untuk load draft."); return; }
+      const raw = localStorage.getItem(k);
+      if (!raw) { setStatus("Draft tidak ditemukan di perangkat ini."); return; }
+      let d;
+      try { d = JSON.parse(raw); } catch { setStatus("Draft rusak/tidak valid."); return; }
+      applyDraft(d);
+      setStatus("Draft berhasil di-load.");
+    });
+    $("btnSubmit").addEventListener("click", () => submit().catch(e => setStatus(String(e.message || e))));
+    $("btnClear").addEventListener("click", async () => {
+      if (!lkpd) await loadLKPD();
+      writeAnswers({});
+      if ($("uiReason")) $("uiReason").value = "";
+      if ($("uxReason")) $("uxReason").value = "";
+      if ($("uiShot")) $("uiShot").value = "";
+      if ($("uxShot")) $("uxShot").value = "";
+      setStatus("Form dibersihkan.");
+    });
+
+    loadLKPD().catch(() => setStatus("Klik Load LKPD bila belum termuat."));
+  </script>
+</body>
+</html>
