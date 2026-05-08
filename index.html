@@ -101,6 +101,7 @@
 
       const sections = [];
       let current = null;
+      let currentBlock = null;
       let qCounter = 0;
 
       for (let i = 0; i < lines.length; i++) {
@@ -108,12 +109,14 @@
         const t = raw.trim();
 
         if (!t) {
-          if (current) current.content.push("");
+          if (currentBlock) currentBlock.lines.push("");
           continue;
         }
 
         if (isSectionHeader(t)) {
-          current = { id: t[0], title: t, content: [], questions: [], tasks: {} };
+          current = { id: t[0], title: t, blocks: [], tasks: {} };
+          currentBlock = { lines: [], questions: [] };
+          current.blocks.push(currentBlock);
           sections.push(current);
           continue;
         }
@@ -131,19 +134,26 @@
           }
         }
 
+        if (current.id === "C" && /^Kasus\s+\d+\s*:/i.test(t)) {
+          currentBlock = { lines: [], questions: [] };
+          current.blocks.push(currentBlock);
+          currentBlock.lines.push(t);
+          continue;
+        }
+
         const nextIdx = nextNonEmptyIndex(lines, i + 1);
         const nextLine = nextIdx >= 0 ? (lines[nextIdx] || "") : "";
 
         if (nextIdx >= 0 && placeholderLike(nextLine)) {
           qCounter++;
-          current.questions.push({ id: `q${qCounter}`, text: t });
+          currentBlock.questions.push({ id: `q${qCounter}`, text: t });
           i = nextIdx;
           continue;
         }
 
         if (placeholderLike(t)) continue;
 
-        current.content.push(t);
+        currentBlock.lines.push(t);
       }
 
       return { title, sections, questionCount: qCounter };
@@ -168,34 +178,36 @@
         h.textContent = section.title;
         sec.appendChild(h);
 
-        for (const line of section.content) {
-          if (!line) {
-            const spacer = document.createElement("div");
-            spacer.style.height = "8px";
-            sec.appendChild(spacer);
-            continue;
+        for (const blockData of section.blocks) {
+          for (const line of blockData.lines) {
+            if (!line) {
+              const spacer = document.createElement("div");
+              spacer.style.height = "8px";
+              sec.appendChild(spacer);
+              continue;
+            }
+            const p = document.createElement("div");
+            p.className = "section-line";
+            p.textContent = line;
+            sec.appendChild(p);
           }
-          const p = document.createElement("div");
-          p.className = "section-line";
-          p.textContent = line;
-          sec.appendChild(p);
-        }
 
-        for (const q of section.questions) {
-          const block = document.createElement("div");
-          block.className = "q-block";
+          for (const q of blockData.questions) {
+            const block = document.createElement("div");
+            block.className = "q-block";
 
-          const title = document.createElement("div");
-          title.className = "q-title";
-          title.textContent = q.text;
+            const title = document.createElement("div");
+            title.className = "q-title";
+            title.textContent = q.text;
 
-          const ta = document.createElement("textarea");
-          ta.id = `ans_${q.id}`;
-          ta.placeholder = "Tulis jawaban di sini...";
+            const ta = document.createElement("textarea");
+            ta.id = `ans_${q.id}`;
+            ta.placeholder = "Tulis jawaban di sini...";
 
-          block.appendChild(title);
-          block.appendChild(ta);
-          sec.appendChild(block);
+            block.appendChild(title);
+            block.appendChild(ta);
+            sec.appendChild(block);
+          }
         }
 
         if (section.id === "D") {
@@ -268,7 +280,9 @@
     function forEachQuestion(fn) {
       if (!lkpd) return;
       for (const section of lkpd.sections) {
-        for (const q of section.questions) fn(q, section);
+        for (const b of section.blocks) {
+          for (const q of b.questions) fn(q, section);
+        }
       }
     }
 
